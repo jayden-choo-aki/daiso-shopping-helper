@@ -1,0 +1,16 @@
+{
+  "name": "다이소 장보기 도우미",
+  "short_name": "다이소 장보기",
+  "description": "다이소 매장 방문 전 제품 검색, 재고 확인, 장보기 리스트 관리",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#e60012",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23e60012'/><text x='50' y='68' text-anchor='middle' font-size='50' fill='white' font-family='sans-serif' font-weight='bold'>D</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
