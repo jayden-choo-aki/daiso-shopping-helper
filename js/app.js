@@ -9,11 +9,14 @@ const App = {
   confirmCallback: null,
   _autocompleteTimer: null,
   _autocompleteLoading: false,
+  _autoCheckInProgress: false,
+  _autoCheckedIds: new Set(),
 
   // ===== 초기화 =====
 
   init() {
     this.bindEvents();
+    this._bindDetailEvents();
     this.renderShoppingList();
     this.renderMyStore();
     this._initRipple();
@@ -146,7 +149,8 @@ const App = {
       main: 'screenMain',
       search: 'screenSearch',
       store: 'screenStore',
-      stock: 'screenStock'
+      stock: 'screenStock',
+      detail: 'screenDetail'
     };
 
     const screenEl = $(`#${screenMap[name]}`);
@@ -157,16 +161,17 @@ const App = {
       main: '장보기 리스트',
       search: '제품 검색',
       store: '매장 설정',
-      stock: '재고 확인'
+      stock: '재고 확인',
+      detail: '제품 상세'
     };
     $('#headerTitle').textContent = titles[name] || '';
 
-    // 뒤로가기는 stock 화면에서만 표시
-    $('#btnBack').style.display = name === 'stock' ? 'flex' : 'none';
+    // 뒤로가기는 stock, detail 화면에서 표시
+    $('#btnBack').style.display = (name === 'stock' || name === 'detail') ? 'flex' : 'none';
 
-    // 탭바: stock에서만 숨김, 나머지는 표시
+    // 탭바: stock, detail에서 숨김, 나머지는 표시
     const tabBar = $('#tabBar');
-    if (name === 'stock') {
+    if (name === 'stock' || name === 'detail') {
       tabBar.classList.add('hidden');
     } else {
       tabBar.classList.remove('hidden');
@@ -225,17 +230,20 @@ const App = {
     listEl.querySelectorAll('.item-card-wrapper').forEach(wrapper => {
       const id = wrapper.dataset.id;
       const card = wrapper.querySelector('.item-card');
-      card.querySelector('.item-check').addEventListener('click', () => {
+      card.querySelector('.item-check').addEventListener('click', e => {
+        e.stopPropagation();
         Storage.toggleCheck(id);
         this._animateCheck(id, wrapper);
       });
-      card.querySelector('.item-delete').addEventListener('click', () => {
+      card.querySelector('.item-delete').addEventListener('click', e => {
+        e.stopPropagation();
         this._deleteWithCollapse(wrapper, id);
       });
       const minusBtn = card.querySelector('.qty-minus');
       const plusBtn = card.querySelector('.qty-plus');
       if (minusBtn) {
-        minusBtn.addEventListener('click', () => {
+        minusBtn.addEventListener('click', e => {
+          e.stopPropagation();
           const item = Storage.getShoppingList().find(i => i.id === id);
           if (item && item.quantity > 1) {
             Storage.updateItem(id, { quantity: item.quantity - 1 });
@@ -244,7 +252,8 @@ const App = {
         });
       }
       if (plusBtn) {
-        plusBtn.addEventListener('click', () => {
+        plusBtn.addEventListener('click', e => {
+          e.stopPropagation();
           const item = Storage.getShoppingList().find(i => i.id === id);
           if (item) {
             Storage.updateItem(id, { quantity: item.quantity + 1 });
@@ -252,6 +261,11 @@ const App = {
           }
         });
       }
+      // 카드 클릭 → 상세 화면 (스와이프 중이면 무시)
+      card.addEventListener('click', () => {
+        if (wrapper._swiped) return;
+        this.showDetail(id);
+      });
       // 스와이프 바인딩
       this._bindSwipe(wrapper, id);
     });
@@ -279,6 +293,11 @@ const App = {
       $('#btnCheckStock').textContent = '매장을 먼저 설정하세요';
     } else {
       $('#btnCheckStock').textContent = '재고 확인';
+    }
+
+    // 매장 설정 시 미확인 아이템 자동 재고 조회
+    if (store && this.currentScreen === 'main') {
+      this._autoCheckStock(store);
     }
   },
 
@@ -697,6 +716,221 @@ const App = {
     $('#stockProgressFill').style.width = '100%';
   },
 
+  // ===== 자동 재고 확인 =====
+
+  async _autoCheckStock(store) {
+    if (this._autoCheckInProgress) return;
+
+    const items = Storage.getShoppingList().filter(i =>
+      i.productId && !i.stockStatus
+    );
+    if (items.length === 0) return;
+
+    this._autoCheckInProgress = true;
+    console.log('[자동재고] 확인 시작:', items.length, '개 아이템');
+
+    for (const item of items) {
+      // 화면 이탈 시 중단
+      if (this.currentScreen !== 'main') {
+        console.log('[자동재고] 화면 이탈로 중단');
+        break;
+      }
+
+      try {
+        console.log('[자동재고] 조회 중:', item.name, item.productId);
+        const inventory = await DaisoAPI.checkInventory(item.productId, store.storeName);
+
+        let stockStatus = 'unchecked';
+        let stockQty = '';
+        let inventoryStoreCode = store.storeCode || '';
+
+        if (inventory && inventory.storeInventory) {
+          const stores = inventory.storeInventory.stores || [];
+          const matched = stores.find(s => s.storeCode === store.storeCode)
+            || stores.find(s => s.storeName === store.storeName)
+            || stores[0];
+
+          if (matched) {
+            inventoryStoreCode = matched.storeCode;
+            if (!store.storeCode && matched.storeCode) {
+              store.storeCode = matched.storeCode;
+              Storage.setMyStore(store);
+            }
+            const qty = Number(matched.quantity) || 0;
+            if (qty > 0) {
+              stockStatus = 'in-stock';
+              stockQty = qty;
+            } else {
+              stockStatus = 'out-of-stock';
+            }
+          }
+        }
+
+        // 진열 위치 확인
+        let locationText = '';
+        try {
+          const locData = await DaisoAPI.getDisplayLocation(item.productId, inventoryStoreCode);
+          if (locData && locData.hasLocation && locData.locations && locData.locations.length > 0) {
+            const loc = locData.locations[0];
+            const parts = [];
+            if (loc.stairNo) {
+              parts.push(Number(loc.stairNo) < 0 ? `B${Math.abs(loc.stairNo)}층` : `${loc.stairNo}층`);
+            }
+            if (loc.zoneNo) parts.push(`${loc.zoneNo}구역`);
+            locationText = parts.join(' ');
+          }
+        } catch (locErr) {
+          console.log('[자동재고] 위치 조회 실패:', locErr.message);
+        }
+
+        console.log('[자동재고] 결과:', item.name, stockStatus, stockQty, locationText);
+
+        // Storage 업데이트
+        Storage.updateItem(item.id, { stockStatus, stockQty, displayLocation: locationText });
+
+        // DOM 직접 업데이트 (리렌더 없이)
+        this._updateItemCardStock(item.id, stockStatus, stockQty, locationText);
+
+      } catch (err) {
+        console.error('[자동재고] 조회 실패:', item.name, err.message);
+      }
+
+      // Rate limit 방지
+      await this._delay(500);
+    }
+
+    console.log('[자동재고] 완료');
+    this._autoCheckInProgress = false;
+  },
+
+  _updateItemCardStock(id, stockStatus, stockQty, displayLocation) {
+    const wrapper = document.querySelector(`.item-card-wrapper[data-id="${id}"]`);
+    if (!wrapper) return;
+
+    const card = wrapper.querySelector('.item-card');
+    const meta = card.querySelector('.item-meta');
+
+    // 기존 재고 배지 제거
+    const existingStock = meta.querySelector('.item-stock');
+    if (existingStock) existingStock.remove();
+
+    // 재고 배지 추가
+    if (stockStatus === 'in-stock') {
+      meta.insertAdjacentHTML('beforeend', `<span class="item-stock in-stock">재고 ${stockQty}개</span>`);
+    } else if (stockStatus === 'out-of-stock') {
+      meta.insertAdjacentHTML('beforeend', `<span class="item-stock out-of-stock">재고 없음</span>`);
+    }
+
+    // 카드 재고 클래스 업데이트
+    card.classList.remove('stock-ok', 'stock-no');
+    if (stockStatus === 'in-stock') card.classList.add('stock-ok');
+    else if (stockStatus === 'out-of-stock') card.classList.add('stock-no');
+
+    // 진열 위치
+    const info = card.querySelector('.item-info');
+    let locEl = info.querySelector('.item-location');
+    if (displayLocation) {
+      if (!locEl) {
+        info.insertAdjacentHTML('beforeend', `<div class="item-location">${this._escapeHtml(displayLocation)}</div>`);
+      } else {
+        locEl.textContent = displayLocation;
+      }
+    }
+  },
+
+  // ===== 제품 상세 화면 =====
+
+  _detailItemId: null,
+
+  showDetail(id) {
+    const item = Storage.getShoppingList().find(i => i.id === id);
+    if (!item) return;
+
+    this._detailItemId = id;
+    const imgSrc = this._fixImageUrl(item.imageUrl);
+
+    const imgEl = $('#detailImage');
+    const placeholderEl = $('#detailImagePlaceholder');
+    if (imgSrc) {
+      imgEl.src = imgSrc;
+      imgEl.style.display = 'block';
+      placeholderEl.style.display = 'none';
+      imgEl.onerror = () => {
+        imgEl.style.display = 'none';
+        placeholderEl.style.display = 'flex';
+      };
+    } else {
+      imgEl.style.display = 'none';
+      placeholderEl.style.display = 'flex';
+    }
+
+    $('#detailName').textContent = item.name;
+    $('#detailPrice').textContent = item.price ? item.price.toLocaleString() + '원' : '가격 정보 없음';
+
+    const idEl = $('#detailId');
+    if (item.productId) {
+      idEl.textContent = '#' + item.productId;
+      idEl.style.display = 'inline-block';
+    } else {
+      idEl.style.display = 'none';
+    }
+
+    // 재고 정보
+    const stockSection = $('#detailStockSection');
+    const stockBadges = $('#detailStockBadges');
+    if (item.stockStatus && item.stockStatus !== 'unchecked') {
+      stockSection.style.display = 'block';
+      if (item.stockStatus === 'in-stock') {
+        stockBadges.innerHTML = `<span class="stock-badge available">재고 있음${item.stockQty ? ` (${item.stockQty}개)` : ''}</span>`;
+      } else {
+        stockBadges.innerHTML = '<span class="stock-badge unavailable">재고 없음</span>';
+      }
+    } else {
+      stockSection.style.display = 'none';
+    }
+
+    // 진열 위치
+    const locSection = $('#detailLocationSection');
+    if (item.displayLocation) {
+      locSection.style.display = 'block';
+      $('#detailLocation').textContent = item.displayLocation;
+    } else {
+      locSection.style.display = 'none';
+    }
+
+    // 수량
+    $('#detailQtyValue').textContent = item.quantity;
+
+    this.showScreen('detail');
+  },
+
+  _bindDetailEvents() {
+    $('#detailQtyMinus').addEventListener('click', () => {
+      if (!this._detailItemId) return;
+      const item = Storage.getShoppingList().find(i => i.id === this._detailItemId);
+      if (item && item.quantity > 1) {
+        Storage.updateItem(this._detailItemId, { quantity: item.quantity - 1 });
+        $('#detailQtyValue').textContent = item.quantity - 1;
+      }
+    });
+    $('#detailQtyPlus').addEventListener('click', () => {
+      if (!this._detailItemId) return;
+      const item = Storage.getShoppingList().find(i => i.id === this._detailItemId);
+      if (item) {
+        Storage.updateItem(this._detailItemId, { quantity: item.quantity + 1 });
+        $('#detailQtyValue').textContent = item.quantity + 1;
+      }
+    });
+    $('#btnDetailDelete').addEventListener('click', () => {
+      if (!this._detailItemId) return;
+      const item = Storage.getShoppingList().find(i => i.id === this._detailItemId);
+      Storage.removeItem(this._detailItemId);
+      this._detailItemId = null;
+      this.goBack();
+      this.toast(`${item ? item.name : '제품'} 삭제됨`, 'error');
+    });
+  },
+
   // ===== 직접 추가 모달 =====
 
   showManualAddModal() {
@@ -767,6 +1001,7 @@ const App = {
       deltaX = 0;
       swiping = false;
       decided = false;
+      wrapper._swiped = false;
       card.classList.remove('swiping');
     }, { passive: true });
 
@@ -790,6 +1025,7 @@ const App = {
     card.addEventListener('touchend', () => {
       card.classList.remove('swiping');
       if (!swiping) return;
+      wrapper._swiped = true;
 
       if (deltaX < -80) {
         card.style.transition = 'transform 0.2s ease';

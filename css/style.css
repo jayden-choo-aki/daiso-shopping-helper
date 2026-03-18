@@ -1295,6 +1295,147 @@ ul {
   }
 }
 
+/* ===== 제품 상세 ===== */
+.detail-image-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 320px;
+  background: var(--gray-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.detail-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.detail-image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gray-bg);
+}
+
+.detail-body {
+  padding: 20px 16px 100px;
+}
+
+.detail-name {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.detail-price {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--red);
+  margin-top: 8px;
+}
+
+.detail-id {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Menlo', monospace;
+  background: var(--gray-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-top: 8px;
+  display: inline-block;
+}
+
+.detail-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.detail-section h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.detail-stock-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-location {
+  font-size: 15px;
+  color: var(--text);
+  background: #e8f0fe;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
+
+.detail-qty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detail-qty-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--gray-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.detail-qty-btn:active {
+  background: var(--border);
+}
+
+.detail-qty-value {
+  font-size: 20px;
+  font-weight: 700;
+  min-width: 32px;
+  text-align: center;
+}
+
+.detail-actions {
+  margin-top: 32px;
+}
+
+.btn-detail-delete {
+  width: 100%;
+  padding: 14px;
+  background: var(--white);
+  color: #e74c3c;
+  border: 1px solid #e74c3c;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.btn-detail-delete:active {
+  background: var(--red-bg);
+}
+
+/* 아이템 카드 클릭 가능 표시 */
+.item-card {
+  cursor: pointer;
+}
+
 /* ===== 반응형 (태블릿/데스크톱) ===== */
 @media (min-width: 481px) {
   #app {
